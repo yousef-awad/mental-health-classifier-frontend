@@ -339,20 +339,22 @@
             submitBtn.disabled = true;
 
             try {
-                const response = await fetch(`${API_URL}/predict`, {
+                // Use Gradio API format
+                const response = await fetch(`${API_URL}/api/predict_mental_health`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify({ data: [text] })
                 });
 
                 if (!response.ok) {
                     throw new Error(`API error: ${response.statusText}`);
                 }
 
-                const data = await response.json();
-                displayResult(data);
+                const result = await response.json();
+                // Gradio returns { data: [prediction_label, confidence_html, ...] }
+                displayGradioResult(result.data);
 
             } catch (error) {
                 showError(error.message);
@@ -362,21 +364,46 @@
             }
         });
 
-        function displayResult(data) {
-            const { prediction, confidence, probabilities } = data;
+        function displayGradioResult(data) {
+            // Parse Gradio response - data[0] is the prediction label, data[1] is confidence scores HTML
+            const predictionLabel = data[0];
+            const confidenceHtml = data[1];
 
-            // Update prediction and confidence
-            document.getElementById('prediction').textContent = prediction;
-            document.getElementById('confidence').textContent =
-                `${(confidence * 100).toFixed(1)}%`;
+            // Extract prediction (e.g., "Normal", "Distressed", "Suicidal")
+            document.getElementById('prediction').textContent = predictionLabel;
+
+            // Parse confidence scores from the HTML or Label component
+            // The confidence data might be in different formats depending on Gradio output
+            let probabilities = { Normal: 0, Distressed: 0, Suicidal: 0 };
+            let maxConfidence = 0;
+
+            // Try to parse if it's a Label component with confidences
+            if (typeof confidenceHtml === 'object' && confidenceHtml.confidences) {
+                confidenceHtml.confidences.forEach(item => {
+                    probabilities[item.label] = item.confidence;
+                    if (item.label === predictionLabel) {
+                        maxConfidence = item.confidence;
+                    }
+                });
+            } else if (typeof confidenceHtml === 'object' && confidenceHtml.label) {
+                // Simple label output
+                probabilities[confidenceHtml.label] = confidenceHtml.confidence || 1;
+                maxConfidence = confidenceHtml.confidence || 1;
+            } else {
+                // Fallback: set the predicted class to 100%
+                probabilities[predictionLabel] = 1;
+                maxConfidence = 1;
+            }
+
+            document.getElementById('confidence').textContent = `${(maxConfidence * 100).toFixed(1)}%`;
 
             // Update probability bars
-            updateProbBar('probNormal', 'probNormalValue', probabilities.Normal);
-            updateProbBar('probDistressed', 'probDistressedValue', probabilities.Distressed);
-            updateProbBar('probSuicidal', 'probSuicidalValue', probabilities.Suicidal);
+            updateProbBar('probNormal', 'probNormalValue', probabilities.Normal || 0);
+            updateProbBar('probDistressed', 'probDistressedValue', probabilities.Distressed || 0);
+            updateProbBar('probSuicidal', 'probSuicidalValue', probabilities.Suicidal || 0);
 
             // Set result style based on prediction
-            resultDiv.className = 'result show ' + prediction.toLowerCase();
+            resultDiv.className = 'result show ' + predictionLabel.toLowerCase();
         }
 
         function updateProbBar(barId, valueId, probability) {
