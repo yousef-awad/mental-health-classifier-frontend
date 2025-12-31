@@ -339,8 +339,8 @@
             submitBtn.disabled = true;
 
             try {
-                // Use Gradio API format
-                const response = await fetch(`${API_URL}/api/predict_mental_health`, {
+                // Gradio 4.x uses /call/{fn} then SSE for results
+                const callResponse = await fetch(`${API_URL}/call/predict_mental_health`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -348,13 +348,43 @@
                     body: JSON.stringify({ data: [text] })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.statusText}`);
+                if (!callResponse.ok) {
+                    throw new Error(`API error: ${callResponse.statusText}`);
                 }
 
-                const result = await response.json();
-                // Gradio returns { data: [prediction_label, confidence_html, ...] }
-                displayGradioResult(result.data);
+                const { event_id } = await callResponse.json();
+
+                // Get result via SSE stream
+                const resultResponse = await fetch(`${API_URL}/call/predict_mental_health/${event_id}`);
+                const reader = resultResponse.body.getReader();
+                const decoder = new TextDecoder();
+                let resultData = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const text = decoder.decode(value);
+                    const lines = text.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonStr = line.slice(6);
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                if (parsed && parsed.length >= 2) {
+                                    resultData = parsed;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                }
+
+                if (resultData) {
+                    displayGradioResult(resultData);
+                } else {
+                    throw new Error('No result received from API');
+                }
 
             } catch (error) {
                 showError(error.message);
