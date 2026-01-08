@@ -395,9 +395,18 @@
         });
 
         function displayGradioResult(data) {
-            // Parse Gradio response - data[0] is the prediction label, data[1] is confidence scores HTML
-            const predictionLabel = data[0];
+            // Parse Gradio response - data[0] is the prediction label or markdown
+            const predictionRaw = data[0];
             const confidenceHtml = data[1];
+            let predictionLabel = predictionRaw;
+
+            if (typeof predictionRaw === 'string') {
+                const cleaned = predictionRaw.replace(/\*\*/g, '');
+                const match = cleaned.match(/Prediction:\s*([A-Za-z]+)/);
+                if (match) {
+                    predictionLabel = match[1];
+                }
+            }
 
             // Extract prediction (e.g., "Normal", "Distressed", "Suicidal")
             document.getElementById('prediction').textContent = predictionLabel;
@@ -423,6 +432,14 @@
                 // Fallback: set the predicted class to 100%
                 probabilities[predictionLabel] = 1;
                 maxConfidence = 1;
+            }
+
+            if (!maxConfidence && typeof predictionRaw === 'string') {
+                const cleaned = predictionRaw.replace(/\*\*/g, '');
+                const confidenceMatch = cleaned.match(/Confidence:\s*([0-9.]+)%/);
+                if (confidenceMatch) {
+                    maxConfidence = parseFloat(confidenceMatch[1]) / 100;
+                }
             }
 
             document.getElementById('confidence').textContent = `${(maxConfidence * 100).toFixed(1)}%`;
